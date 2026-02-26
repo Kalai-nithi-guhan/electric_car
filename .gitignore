@@ -28,3 +28,18 @@ Thumbs.db
 # Env files
 .env
 .env.*
+
+# Large model files
+*.pkl
+trained_range_predictor.pkl
+
+# Database
+instance/
+*.db
+*.sqlite
+
+# CSV data files
+*.csv
+
+# Jupyter notebooks checkpoints
+.ipynb_checkpoints/
