@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Search - Admin Dashboard</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f4f4f4;
+        }
+        h1 {
+            color: #333;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        .search-form {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        select, input {
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        input {
+            flex: 1;
+        }
+        button {
+            padding: 10px 20px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+        }
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        th {
+            background-color: #4CAF50;
+            color: white;
+        }
+        tr:hover {
+            background-color: #f5f5f5;
+        }
+        .error {
+            background-color: #ffebee;
+            color: #c62828;
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 15px;
+        }
+        .no-results {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+        }
+        .btn-back {
+            background-color: #999;
+            color: white;
+            padding: 10px 20px;
+            text-decoration: none;
+            border-radius: 4px;
+            display: inline-block;
+            margin-bottom: 20px;
+        }
+        .view-link {
+            color: #4CAF50;
+            text-decoration: none;
+            font-weight: bold;
+        }
+        .view-link:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+
+<a href="/admin/dashboard" class="btn-back">← Back to Dashboard</a>
+
+<h1>🔍 Search Cars by Driver ID or Car ID</h1>
+
+<div class="container">
+    <form method="POST" class="search-form">
+        <select name="search_type" required>
+            <option value="driver_id" {% if search_type == 'driver_id' %}selected{% endif %}>Driver ID</option>
+            <option value="car_id" {% if search_type == 'car_id' %}selected{% endif %}>Car ID</option>
+            <option value="driver_name" {% if search_type == 'driver_name' %}selected{% endif %}>Driver Name</option>
+        </select>
+        <input type="text" name="search_value" placeholder="Enter search value..." 
+               value="{{ search_value if search_value else '' }}" required>
+        <button type="submit">Search</button>
+    </form>
+
+    {% if error %}
+    <div class="error">{{ error }}</div>
+    {% endif %}
+</div>
+
+{% if results is defined %}
+<div class="container">
+    <h2>Search Results ({{ results|length }} found)</h2>
+    
+    {% if results %}
+    <table>
+        <thead>
+            <tr>
+                <th>Car ID</th>
+                <th>Driver ID</th>
+                <th>Driver Name</th>
+                <th>City</th>
+                <th>Vehicle Type</th>
+                <th>Battery %</th>
+                <th>Max Speed</th>
+                <th>Action</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for car in results %}
+            <tr>
+                <td>{{ car.car_id }}</td>
+                <td>{{ car.driver_id }}</td>
+                <td>{{ car.driver_name }}</td>
+                <td>{{ car.city }}</td>
+                <td>{{ car.vehicle_type }}</td>
+                <td>{{ car.battery_health }}%</td>
+                <td>{{ car.max_speed }} km/h</td>
+                <td><a href="/admin/car/{{ car.car_id }}" class="view-link">View Details</a></td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div class="no-results">
+        <h3>No results found for "{{ search_value }}"</h3>
+        <p>Try searching with a different value</p>
+    </div>
+    {% endif %}
+</div>
+{% endif %}
+
+</body>
+</html>

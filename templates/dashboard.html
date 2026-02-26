@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Dashboard</title>
+</head>
+<body>
+
+<h2>Dashboard</h2>
+
+{% if role == "admin" %}
+    <h3>Welcome Admin</h3>
+    <p>You have full access.</p>
+{% else %}
+    <h3>Welcome Driver</h3>
+    <p>Driver features will be added here.</p>
+{% endif %}
+
+<br>
+<a href="/logout"><button>Logout</button></a>
+
+</body>
+</html>

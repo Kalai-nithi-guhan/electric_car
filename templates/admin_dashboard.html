@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Admin Dashboard</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f4f4f4;
+        }
+        h1 {
+            color: #333;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        .action-buttons {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        .action-btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 6px;
+            font-size: 16px;
+            cursor: pointer;
+            text-decoration: none;
+            color: white;
+            display: inline-block;
+        }
+        .btn-search {
+            background-color: #4CAF50;
+        }
+        .btn-admins {
+            background-color: #2196F3;
+        }
+        .btn-register {
+            background-color: #FF9800;
+        }
+        .action-btn:hover {
+            opacity: 0.9;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+        }
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        th {
+            background-color: #4CAF50;
+            color: white;
+        }
+        tr:hover {
+            background-color: #f5f5f5;
+        }
+        .btn {
+            background-color: #f44336;
+            color: white;
+            padding: 10px 20px;
+            text-decoration: none;
+            border-radius: 4px;
+            display: inline-block;
+            margin-top: 10px;
+        }
+        .btn:hover {
+            background-color: #da190b;
+        }
+        .section-header {
+            color: #4CAF50;
+            margin-top: 30px;
+        }
+        .stats {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        .stat-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            flex: 1;
+            text-align: center;
+        }
+        .stat-card h3 {
+            margin: 0;
+            font-size: 36px;
+        }
+        .stat-card p {
+            margin: 5px 0 0 0;
+        }
+        .view-link {
+            color: #4CAF50;
+            text-decoration: none;
+            font-weight: bold;
+        }
+        .view-link:hover {
+            text-decoration: underline;
+        }
+        .info-box {
+            background-color: #e3f2fd;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            color: #1565c0;
+        }
+    </style>
+</head>
+<body>
+
+<h1>Admin Dashboard</h1>
+<p>Welcome, <strong>{{ username }}</strong>!</p>
+
+<div class="action-buttons">
+    <a href="/admin/search" class="action-btn btn-search">🔍 Search Cars</a>
+    <a href="/admin/admins" class="action-btn btn-admins">👥 View Admins</a>
+    <a href="/register/admin" class="action-btn btn-register">➕ Register New Admin</a>
+    <a href="/admin/cars/new" class="action-btn btn-search">➕ Add Car</a>
+</div>
+
+<div class="stats">
+    <div class="stat-card">
+        <h3>{{ driver_count }}</h3>
+        <p>Total Drivers</p>
+    </div>
+    <div class="stat-card">
+        <h3>{{ total_cars }}</h3>
+        <p>Total Cars</p>
+    </div>
+    <div class="stat-card">
+        <h3>{{ cars|length }}</h3>
+        <p>Showing Now</p>
+    </div>
+    <div class="stat-card">
+        <h3>{{ available_cars }}</h3>
+        <p>Available Cars</p>
+    </div>
+</div>
+
+<!-- Drivers Section -->
+<div class="container">
+    <h2 class="section-header">Registered Drivers</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Driver ID</th>
+                <th>Driver Name</th>
+                <th>City</th>
+                <th>Action</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% if drivers %}
+                {% for driver in drivers %}
+                <tr>
+                    <td>{{ driver.driver_id }}</td>
+                    <td>{{ driver.driver_name }}</td>
+                    <td>{{ driver.city }}</td>
+                    <td>
+                        <form method="POST" action="/admin/driver/{{ driver.driver_id }}/release" onsubmit="return confirm('Release all cars for this driver?');" style="display:inline;">
+                            <button type="submit" class="btn" style="margin-top:0;">Release Driver Cars</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            {% else %}
+                <tr>
+                    <td colspan="4" style="text-align: center;">No drivers found in cars database</td>
+                </tr>
+            {% endif %}
+        </tbody>
+    </table>
+</div>
+
+<!-- Cars Section -->
+<div class="container">
+    <h2 class="section-header">Cars Overview (Showing {{ cars|length }} of {{ total_cars }})</h2>
+    <div class="info-box">
+        ℹ️ Displaying first 50 cars. Use the <strong>Search</strong> feature to find specific cars by Driver ID or Car ID.
+    </div>
+    <table>
+        <thead>
+            <tr>
+                <th>Car ID</th>
+                <th>Driver ID</th>
+                <th>Driver Name</th>
+                <th>City</th>
+                <th>Vehicle Type</th>
+                <th>Battery %</th>
+                <th>Status</th>
+                <th>Action</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% if cars %}
+                {% for car in cars %}
+                <tr>
+                    <td>{{ car.car_id }}</td>
+                    <td>{{ car.driver_id }}</td>
+                    <td>{{ car.driver_name }}</td>
+                    <td>{{ car.city }}</td>
+                    <td>{{ car.vehicle_type }}</td>
+                    <td>{{ car.battery_health }}%</td>
+                    <td>{{ car.status }}</td>
+                    <td>
+                        <a href="/admin/car/{{ car.car_id }}" class="view-link">View</a>
+                        | <a href="/admin/cars/{{ car.car_id }}/edit" class="view-link">Edit</a>
+                        | <form method="POST" action="/admin/cars/{{ car.car_id }}/release" onsubmit="return confirm('Release this car for reassignment?');" style="display:inline;">
+                            <button type="submit" class="view-link" style="border:none;background:none;padding:0;cursor:pointer;">Release</button>
+                        </form>
+                        | <form method="POST" action="/admin/cars/{{ car.car_id }}/delete" onsubmit="return confirm('Delete this car?');" style="display:inline;">
+                            <button type="submit" class="view-link" style="border:none;background:none;padding:0;cursor:pointer;">Delete</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            {% else %}
+                <tr>
+                    <td colspan="7" style="text-align: center;">No cars in database</td>
+                </tr>
+            {% endif %}
+        </tbody>
+    </table>
+</div>
+
+<a href="/logout" class="btn">Logout</a>
+
+</body>
+</html>
