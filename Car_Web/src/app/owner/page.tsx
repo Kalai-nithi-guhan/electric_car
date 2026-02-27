@@ -28,6 +28,31 @@ interface MLStats {
   }>;
 }
 
+interface ModelComparison {
+  vehicle_types: string[];
+  monthly_revenue: {
+    months: string[];
+    data: { [key: string]: number[] };
+  };
+  yearly_revenue: {
+    years: string[];
+    data: { [key: string]: number[] };
+  };
+  summary: {
+    total_vehicles: number;
+    total_revenue: number;
+    avg_monthly_revenue: number;
+    avg_yearly_revenue: number;
+  };
+}
+
+interface VehicleStatus {
+  vehicle_type: string;
+  active: number;
+  inactive: number;
+  total: number;
+}
+
 interface TrendData {
   dates: string[];
   values: number[];
@@ -35,9 +60,11 @@ interface TrendData {
 
 function OwnerDashboard() {
   const [mlStats, setMlStats] = useState<MLStats | null>(null);
-  const [revenueTrend, setRevenueTrend] = useState<TrendData | null>(null);
-  const [kmTrend, setKmTrend] = useState<TrendData | null>(null);
+  const [modelComparison, setModelComparison] = useState<ModelComparison | null>(null);
+  const [vehicleStatus, setVehicleStatus] = useState<VehicleStatus[] | null>(null);
   const [loading, setLoading] = useState(true);
+  const [selectedMonthPoint, setSelectedMonthPoint] = useState<{idx: number, label: string, value: number} | null>(null);
+  const [selectedYearPoint, setSelectedYearPoint] = useState<{idx: number, label: string, value: number} | null>(null);
 
   useEffect(() => {
     async function loadData() {
@@ -50,22 +77,22 @@ function OwnerDashboard() {
           setMlStats(statsData);
         }
 
-        // Load revenue trend
-        const revenueRes = await fetch(`${API_BASE_URL}/api/ml/monthly-trend?metric=gross_revenue&months=6`, {
+        // Load model comparison data
+        const modelRes = await fetch(`${API_BASE_URL}/api/battery/model-comparison`, {
           credentials: "include",
         });
-        if (revenueRes.ok) {
-          const revenueData = await revenueRes.json();
-          setRevenueTrend(revenueData);
+        if (modelRes.ok) {
+          const modelData = await modelRes.json();
+          setModelComparison(modelData);
         }
 
-        // Load KM trend
-        const kmRes = await fetch(`${API_BASE_URL}/api/ml/monthly-trend?metric=total_km_driven&months=6`, {
+        // Load vehicle status data
+        const statusRes = await fetch(`${API_BASE_URL}/api/vehicle/status-by-type`, {
           credentials: "include",
         });
-        if (kmRes.ok) {
-          const kmData = await kmRes.json();
-          setKmTrend(kmData);
+        if (statusRes.ok) {
+          const statusData = await statusRes.json();
+          setVehicleStatus(statusData.vehicle_status);
         }
       } catch (err) {
         console.error("Error loading data:", err);
@@ -119,170 +146,308 @@ function OwnerDashboard() {
         />
       </div>
 
-      {/* Line Charts with better visualization */}
-      <div className="grid gap-4 lg:grid-cols-2">
-        {revenueTrend && revenueTrend.values.length > 0 && (
-          <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
-            <h3 className="text-lg font-semibold text-slate-900 mb-4">Revenue Trend</h3>
-            <div className="relative">
-              <svg viewBox="0 0 400 200" className="w-full h-48">
-                {/* Grid lines */}
-                {[0, 1, 2, 3, 4].map((i) => (
-                  <line
-                    key={i}
-                    x1="40"
-                    y1={20 + i * 40}
-                    x2="380"
-                    y2={20 + i * 40}
-                    stroke="#e2e8f0"
-                    strokeWidth="1"
-                  />
-                ))}
-                
-                {/* Axes */}
-                <line x1="40" y1="20" x2="40" y2="180" stroke="#64748b" strokeWidth="2" />
-                <line x1="40" y1="180" x2="380" y2="180" stroke="#64748b" strokeWidth="2" />
-                
-                {/* Line with gradient fill */}
-                {(() => {
-                  const maxValue = Math.max(...revenueTrend.values);
-                  const minValue = Math.min(...revenueTrend.values);
-                  const range = maxValue - minValue || 1;
-                  const points = revenueTrend.values.map((val, idx) => {
-                    const x = 40 + (idx / (revenueTrend.values.length - 1)) * 340;
-                    const y = 180 - ((val - minValue) / range) * 160;
-                    return `${x},${y}`;
-                  }).join(' ');
-                  
-                  const areaPoints = `40,180 ${points} ${40 + 340},180`;
-                  
-                  return (
-                    <>
-                      <defs>
-                        <linearGradient id="revenueGradient" x1="0%" y1="0%" x2="0%" y2="100%">
-                          <stop offset="0%" stopColor="#10b981" stopOpacity="0.3" />
-                          <stop offset="100%" stopColor="#10b981" stopOpacity="0.05" />
-                        </linearGradient>
-                      </defs>
-                      <polygon
-                        points={areaPoints}
-                        fill="url(#revenueGradient)"
-                      />
-                      <polyline
-                        points={points}
-                        fill="none"
-                        stroke="#10b981"
-                        strokeWidth="3"
-                        strokeLinejoin="round"
-                      />
-                      {revenueTrend.values.map((val, idx) => {
-                        const x = 40 + (idx / (revenueTrend.values.length - 1)) * 340;
-                        const y = 180 - ((val - minValue) / range) * 160;
-                        return (
-                          <circle
-                            key={idx}
-                            cx={x}
-                            cy={y}
-                            r="4"
-                            fill="#10b981"
-                            stroke="white"
-                            strokeWidth="2"
-                          />
-                        );
-                      })}
-                    </>
-                  );
-                })()}
-              </svg>
-            </div>
-            <div className="mt-4 flex justify-between text-xs text-slate-500">
-              {revenueTrend.dates.slice(0, 3).map((date, idx) => (
-                <span key={idx}>{date}</span>
-              ))}
-            </div>
+      {/* Total Active/Inactive Summary */}
+      {vehicleStatus && vehicleStatus.length > 0 && (
+        <div className="grid gap-3 md:grid-cols-2">
+          <div className="rounded-xl border border-green-200 bg-green-50 p-6 shadow-sm">
+            <h3 className="text-sm font-medium text-green-700">Total Active</h3>
+            <p className="mt-2 text-3xl font-bold text-green-600">
+              {vehicleStatus.reduce((sum, status) => sum + status.active, 0)}
+            </p>
           </div>
-        )}
+          <div className="rounded-xl border border-red-200 bg-red-50 p-6 shadow-sm">
+            <h3 className="text-sm font-medium text-red-700">Total Inactive</h3>
+            <p className="mt-2 text-3xl font-bold text-red-600">
+              {vehicleStatus.reduce((sum, status) => sum + status.inactive, 0)}
+            </p>
+          </div>
+        </div>
+      )}
 
-        {kmTrend && kmTrend.values.length > 0 && (
-          <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
-            <h3 className="text-lg font-semibold text-slate-900 mb-4">Total Cost Trend</h3>
-            <div className="relative">
-              <svg viewBox="0 0 400 200" className="w-full h-48">
-                {/* Grid lines */}
-                {[0, 1, 2, 3, 4].map((i) => (
-                  <line
-                    key={i}
-                    x1="40"
-                    y1={20 + i * 40}
-                    x2="380"
-                    y2={20 + i * 40}
-                    stroke="#e2e8f0"
-                    strokeWidth="1"
-                  />
-                ))}
-                
-                {/* Axes */}
-                <line x1="40" y1="20" x2="40" y2="180" stroke="#64748b" strokeWidth="2" />
-                <line x1="40" y1="180" x2="380" y2="180" stroke="#64748b" strokeWidth="2" />
-                
-                {/* Line with gradient fill */}
-                {(() => {
-                  const maxValue = Math.max(...kmTrend.values);
-                  const minValue = Math.min(...kmTrend.values);
-                  const range = maxValue - minValue || 1;
-                  const points = kmTrend.values.map((val, idx) => {
-                    const x = 40 + (idx / (kmTrend.values.length - 1)) * 340;
-                    const y = 180 - ((val - minValue) / range) * 160;
-                    return `${x},${y}`;
-                  }).join(' ');
-                  
-                  const areaPoints = `40,180 ${points} ${40 + 340},180`;
-                  
-                  return (
-                    <>
-                      <defs>
-                        <linearGradient id="costGradient" x1="0%" y1="0%" x2="0%" y2="100%">
-                          <stop offset="0%" stopColor="#f59e0b" stopOpacity="0.3" />
-                          <stop offset="100%" stopColor="#f59e0b" stopOpacity="0.05" />
-                        </linearGradient>
-                      </defs>
-                      <polygon
-                        points={areaPoints}
-                        fill="url(#costGradient)"
-                      />
-                      <polyline
-                        points={points}
-                        fill="none"
-                        stroke="#f59e0b"
-                        strokeWidth="3"
-                        strokeLinejoin="round"
-                      />
-                      {kmTrend.values.map((val, idx) => {
-                        const x = 40 + (idx / (kmTrend.values.length - 1)) * 340;
-                        const y = 180 - ((val - minValue) / range) * 160;
-                        return (
-                          <circle
-                            key={idx}
-                            cx={x}
-                            cy={y}
-                            r="4"
-                            fill="#f59e0b"
-                            stroke="white"
-                            strokeWidth="2"
-                          />
-                        );
-                      })}
-                    </>
-                  );
-                })()}
-              </svg>
-            </div>
-            <div className="mt-4 flex justify-between text-xs text-slate-500">
-              {kmTrend.dates.slice(0, 3).map((date, idx) => (
-                <span key={idx}>{date}</span>
-              ))}
-            </div>
+      {/* Vehicle Status by Model */}
+      {vehicleStatus && vehicleStatus.length > 0 && (
+        <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+          <h3 className="text-lg font-semibold text-slate-900 mb-4">Vehicle Status by Model</h3>
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+            {vehicleStatus.map((model, idx) => (
+              <div key={idx} className="rounded-lg border border-slate-200 p-4 hover:shadow-md transition-shadow">
+                <h4 className="text-sm font-semibold text-slate-900 mb-3">{model.vehicle_type}</h4>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-green-700">Active</span>
+                    <span className="text-sm font-bold text-green-600">{model.active}</span>
+                  </div>
+                  <div className="w-full bg-green-100 rounded-full h-2">
+                    <div
+                      className="bg-green-500 h-2 rounded-full"
+                      style={{ width: `${(model.active / model.total) * 100}%` }}
+                    />
+                  </div>
+                </div>
+                <div className="space-y-2 mt-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-red-700">Inactive</span>
+                    <span className="text-sm font-bold text-red-600">{model.inactive}</span>
+                  </div>
+                  <div className="w-full bg-red-100 rounded-full h-2">
+                    <div
+                      className="bg-red-500 h-2 rounded-full"
+                      style={{ width: `${(model.inactive / model.total) * 100}%` }}
+                    />
+                  </div>
+                </div>
+                <div className="mt-4 pt-3 border-t border-slate-200">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-slate-600">Total</span>
+                    <span className="text-lg font-bold text-slate-900">{model.total}</span>
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
+        </div>
+      )}
+
+      {/* Revenue Comparison Charts by Vehicle Type */}
+      <div className="grid gap-4 lg:grid-cols-2">
+        {modelComparison && modelComparison.monthly_revenue && modelComparison.monthly_revenue.data && modelComparison.yearly_revenue && modelComparison.yearly_revenue.data && (
+          <>
+            {/* Monthly Revenue Comparison */}
+            <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+              <h3 className="text-lg font-semibold text-slate-900 mb-4">Monthly Revenue by Vehicle Type</h3>
+              <div className="relative">
+                <svg viewBox="0 0 500 250" className="w-full h-64">
+                  {/* Grid lines */}
+                  {[0, 1, 2, 3, 4, 5].map((i) => (
+                    <line
+                      key={i}
+                      x1="60"
+                      y1={30 + i * 35}
+                      x2="480"
+                      y2={30 + i * 35}
+                      stroke="#e2e8f0"
+                      strokeWidth="1"
+                    />
+                  ))}
+                  
+                  {/* Axes */}
+                  <line x1="60" y1="30" x2="60" y2="240" stroke="#64748b" strokeWidth="2" />
+                  <line x1="60" y1="240" x2="480" y2="240" stroke="#64748b" strokeWidth="2" />
+                  
+                  {/* Lines for each vehicle type */}
+                  {(() => {
+                    const colors = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444"];
+                    const allValues = Object.values(modelComparison.monthly_revenue.data).flat();
+                    const maxValue = Math.max(...allValues);
+                    const minValue = Math.min(...allValues);
+                    const range = maxValue - minValue || 1;
+                    
+                    return modelComparison.vehicle_types.map((vtype, typeIdx) => {
+                      const values = modelComparison.monthly_revenue.data[vtype] || [];
+                      const color = colors[typeIdx % colors.length];
+                      
+                      const points = values.map((val, idx) => {
+                        const x = 60 + (idx / (values.length - 1 || 1)) * 420;
+                        const y = 240 - ((val - minValue) / range) * 210;
+                        return `${x},${y}`;
+                      }).join(' ');
+                      
+                      return (
+                        <g key={typeIdx}>
+                          <polyline
+                            points={points}
+                            fill="none"
+                            stroke={color}
+                            strokeWidth="1.5"
+                            strokeLinejoin="round"
+                          />
+                          {values.map((val, idx) => {
+                            const x = 60 + (idx / (values.length - 1 || 1)) * 420;
+                            const y = 240 - ((val - minValue) / range) * 210;
+                            const monthLabel = modelComparison.monthly_revenue.months[idx];
+                            return (
+                              <g key={idx}>
+                                <circle
+                                  cx={x}
+                                  cy={y}
+                                  r="5"
+                                  fill={color}
+                                  stroke="white"
+                                  strokeWidth="2"
+                                  style={{ cursor: 'pointer' }}
+                                  onClick={() => setSelectedMonthPoint({idx, label: monthLabel, value: val})}
+                                  onMouseEnter={(e) => {
+                                    (e.target as SVGCircleElement).setAttribute('r', '7');
+                                  }}
+                                  onMouseLeave={(e) => {
+                                    (e.target as SVGCircleElement).setAttribute('r', '5');
+                                  }}
+                                />
+                                {selectedMonthPoint?.idx === idx && (
+                                  <>
+                                    <text
+                                      x={x}
+                                      y={y - 25}
+                                      fontSize="11"
+                                      fontWeight="bold"
+                                      fill={color}
+                                      textAnchor="middle"
+                                    >
+                                      {monthLabel}
+                                    </text>
+                                    <text
+                                      x={x}
+                                      y={y - 12}
+                                      fontSize="10"
+                                      fill={color}
+                                      textAnchor="middle"
+                                    >
+                                      ₹{(val / 100000).toFixed(2)}L
+                                    </text>
+                                  </>
+                                )}
+                              </g>
+                            );
+                          })}
+                        </g>
+                      );
+                    });
+                  })()}
+                </svg>
+              </div>
+              
+              {/* Legend */}
+              <div className="mt-4 flex flex-wrap gap-4 justify-center">
+                {modelComparison.vehicle_types.map((vtype, idx) => {
+                  const colors = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444"];
+                  return (
+                    <div key={idx} className="flex items-center gap-2">
+                      <div className="w-4 h-4 rounded-full" style={{ backgroundColor: colors[idx % colors.length] }} />
+                      <span className="text-xs font-medium text-slate-600">{vtype}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Yearly Revenue Comparison */}
+            <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+              <h3 className="text-lg font-semibold text-slate-900 mb-4">Yearly Revenue by Vehicle Type</h3>
+              <div className="relative">
+                <svg viewBox="0 0 500 250" className="w-full h-64">
+                  {/* Grid lines */}
+                  {[0, 1, 2, 3, 4, 5].map((i) => (
+                    <line
+                      key={i}
+                      x1="60"
+                      y1={30 + i * 35}
+                      x2="480"
+                      y2={30 + i * 35}
+                      stroke="#e2e8f0"
+                      strokeWidth="1"
+                    />
+                  ))}
+                  
+                  {/* Axes */}
+                  <line x1="60" y1="30" x2="60" y2="240" stroke="#64748b" strokeWidth="2" />
+                  <line x1="60" y1="240" x2="480" y2="240" stroke="#64748b" strokeWidth="2" />
+                  
+                  {/* Lines for each vehicle type */}
+                  {(() => {
+                    const colors = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444"];
+                    const allValues = Object.values(modelComparison.yearly_revenue.data).flat();
+                    const maxValue = Math.max(...allValues);
+                    const minValue = Math.min(...allValues);
+                    const range = maxValue - minValue || 1;
+                    
+                    return modelComparison.vehicle_types.map((vtype, typeIdx) => {
+                      const values = modelComparison.yearly_revenue.data[vtype] || [];
+                      const color = colors[typeIdx % colors.length];
+                      
+                      const points = values.map((val, idx) => {
+                        const x = 60 + (idx / (values.length - 1 || 1)) * 420;
+                        const y = 240 - ((val - minValue) / range) * 210;
+                        return `${x},${y}`;
+                      }).join(' ');
+                      
+                      return (
+                        <g key={typeIdx}>
+                          <polyline
+                            points={points}
+                            fill="none"
+                            stroke={color}
+                            strokeWidth="1.5"
+                            strokeLinejoin="round"
+                          />
+                          {values.map((val, idx) => {
+                            const x = 60 + (idx / (values.length - 1 || 1)) * 420;
+                            const y = 240 - ((val - minValue) / range) * 210;
+                            const yearLabel = modelComparison.yearly_revenue.years[idx];
+                            return (
+                              <g key={idx}>
+                                <circle
+                                  cx={x}
+                                  cy={y}
+                                  r="5"
+                                  fill={color}
+                                  stroke="white"
+                                  strokeWidth="2"
+                                  style={{ cursor: 'pointer' }}
+                                  onClick={() => setSelectedYearPoint({idx, label: yearLabel, value: val})}
+                                  onMouseEnter={(e) => {
+                                    (e.target as SVGCircleElement).setAttribute('r', '7');
+                                  }}
+                                  onMouseLeave={(e) => {
+                                    (e.target as SVGCircleElement).setAttribute('r', '5');
+                                  }}
+                                />
+                                {selectedYearPoint?.idx === idx && (
+                                  <>
+                                    <text
+                                      x={x}
+                                      y={y - 25}
+                                      fontSize="11"
+                                      fontWeight="bold"
+                                      fill={color}
+                                      textAnchor="middle"
+                                    >
+                                      {yearLabel}
+                                    </text>
+                                    <text
+                                      x={x}
+                                      y={y - 12}
+                                      fontSize="10"
+                                      fill={color}
+                                      textAnchor="middle"
+                                    >
+                                      ₹{(val / 100000).toFixed(2)}L
+                                    </text>
+                                  </>
+                                )}
+                              </g>
+                            );
+                          })}
+                        </g>
+                      );
+                    });
+                  })()}
+                </svg>
+              </div>
+              
+              {/* Legend */}
+              <div className="mt-4 flex flex-wrap gap-4 justify-center">
+                {modelComparison.vehicle_types.map((vtype, idx) => {
+                  const colors = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444"];
+                  return (
+                    <div key={idx} className="flex items-center gap-2">
+                      <div className="w-4 h-4 rounded-full" style={{ backgroundColor: colors[idx % colors.length] }} />
+                      <span className="text-xs font-medium text-slate-600">{vtype}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </>
         )}
       </div>
 
@@ -290,62 +455,72 @@ function OwnerDashboard() {
       <section className="space-y-3">
         <h2 className="text-lg font-semibold">Vehicle Models ({mlStats.by_vehicle_type.length})</h2>
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          {mlStats.by_vehicle_type.map((model, idx) => (
-            <div key={idx} className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm hover:shadow-md transition-shadow">
-              <div className="flex items-start justify-between mb-4">
-                <div>
+          {mlStats.by_vehicle_type.map((model, idx) => {
+            const status = vehicleStatus?.find(v => v.vehicle_type === model.vehicle_type);
+            return (
+              <div key={idx} className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm hover:shadow-md transition-shadow">
+                <div className="mb-4">
                   <h3 className="text-lg font-bold text-slate-900">{model.vehicle_type}</h3>
-                  <p className="text-sm text-slate-500">{model.cars} vehicles</p>
-                </div>
-                <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-medium text-emerald-700">
-                  Active
-                </span>
-              </div>
-              
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-slate-600">Total Revenue</span>
-                  <span className="text-sm font-semibold text-emerald-600">
-                    ₹{(model.total_revenue / 1000000).toFixed(2)}M
-                  </span>
-                </div>
-                
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-slate-600">Avg Revenue</span>
-                  <span className="text-sm font-semibold text-blue-600">
-                    ₹{(model.avg_revenue / 1000).toFixed(0)}K
-                  </span>
+                  <div className="flex items-center gap-2 mt-2">
+                    <p className="text-sm text-slate-500">{model.cars} vehicles</p>
+                    {status && (
+                      <div className="flex gap-1">
+                        <span className="text-xs font-medium bg-green-100 text-green-700 px-1.5 py-0.5 rounded">
+                          A: {status.active}
+                        </span>
+                        <span className="text-xs font-medium bg-red-100 text-red-700 px-1.5 py-0.5 rounded">
+                          I: {status.inactive}
+                        </span>
+                      </div>
+                    )}
+                  </div>
                 </div>
                 
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-slate-600">Total KM</span>
-                  <span className="text-sm font-semibold text-purple-600">
-                    {(model.total_km / 1000).toFixed(0)}K
-                  </span>
-                </div>
-                
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-slate-600">Battery Health</span>
-                  <span className={`text-sm font-semibold ${
-                    model.avg_battery_health >= 85 ? 'text-green-600' : 
-                    model.avg_battery_health >= 75 ? 'text-yellow-600' : 
-                    'text-red-600'
-                  }`}>
-                    {model.avg_battery_health.toFixed(1)}%
-                  </span>
-                </div>
-                
-                <div className="pt-3 border-t border-slate-100">
+                <div className="space-y-3">
                   <div className="flex items-center justify-between">
-                    <span className="text-sm text-slate-600">Maintenance</span>
-                    <span className="text-sm font-semibold text-amber-600">
-                      ₹{(model.total_maintenance_cost / 1000000).toFixed(2)}M
+                    <span className="text-sm text-slate-600">Total Revenue</span>
+                    <span className="text-sm font-semibold text-emerald-600">
+                      ₹{(model.total_revenue / 1000000).toFixed(2)}M
                     </span>
+                  </div>
+                  
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-slate-600">Avg Revenue</span>
+                    <span className="text-sm font-semibold text-blue-600">
+                      ₹{(model.avg_revenue / 1000).toFixed(0)}K
+                    </span>
+                  </div>
+                  
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-slate-600">Total KM</span>
+                    <span className="text-sm font-semibold text-purple-600">
+                      {(model.total_km / 1000).toFixed(0)}K
+                    </span>
+                  </div>
+                  
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-slate-600">Battery Health</span>
+                    <span className={`text-sm font-semibold ${
+                      model.avg_battery_health >= 85 ? 'text-green-600' : 
+                      model.avg_battery_health >= 75 ? 'text-yellow-600' : 
+                      'text-red-600'
+                    }`}>
+                      {model.avg_battery_health.toFixed(1)}%
+                    </span>
+                  </div>
+                  
+                  <div className="pt-3 border-t border-slate-100">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-slate-600">Maintenance</span>
+                      <span className="text-sm font-semibold text-amber-600">
+                        ₹{(model.total_maintenance_cost / 1000000).toFixed(2)}M
+                      </span>
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </section>
 

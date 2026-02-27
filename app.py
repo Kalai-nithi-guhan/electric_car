@@ -9,6 +9,7 @@ import csv
 import os
 import pandas as pd
 from ml_models import get_analytics, get_predictor, get_comparison
+import batteryHealth_comparisonMode as battery_system
 
 app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = "sqlite:///electricCar.db"
@@ -77,43 +78,67 @@ class Car(db.Model):
     max_speed = db.Column(db.Integer, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
-# Function to load car data from Excel
-def load_car_data():
-    excel_file = os.path.join(os.getcwd(), 'final_dataset_for_electiccar 2.xlsx')
-    if not os.path.exists(excel_file):
-        print("Excel file not found!")
+# Function to load car data from CSV
+def load_car_data(force_reload=True):
+    csv_file = os.path.join(os.getcwd(), "final_dataset_for_electiccar_2.csv")
+    if not os.path.exists(csv_file):
+        csv_file = os.path.join("helping folder for the electic car", "final_dataset_for_electiccar_2.csv")
+
+    if not os.path.exists(csv_file):
+        print("CSV file not found!")
         return
-    
-    # Check if data already loaded
-    if Car.query.first():
+
+    if not force_reload and Car.query.first():
         print("Car data already loaded")
         return
-    
-    # Read Excel file
-    df = pd.read_excel(excel_file)
-    for index, row in df.iterrows():
+
+    if force_reload:
+        db.session.query(Car).delete()
+        db.session.commit()
+
+    df = pd.read_csv(csv_file)
+
+    def _to_int(value, default=0):
+        try:
+            return int(float(value))
+        except (TypeError, ValueError):
+            return default
+
+    def _to_float(value, default=0.0):
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return default
+
+    for _, row in df.iterrows():
+        total_km = _to_float(row.get("total km driven", 0.0), 0.0)
+        charging_cost = _to_float(row.get("charging cost", 0.0), 0.0)
+        maintenance_cost = _to_float(row.get("total maintanace cost", 0.0), 0.0)
+
         car = Car(
-            driver_id=str(row['driver id']),
-            car_id=str(row['car id']),
-            driver_name=str(row['drive name']),
-            city=str(row['city']),
-            vehicle_type=str(row['vechicle type']),
-            vehicle_age=int(row['vechicle age']),
-            trips_per_month=int(row['total km driven'] / 100) if row['total km driven'] > 0 else 20,  # Estimated from km driven
-            battery_health=float(row['current charge percentage']),
-            charge_per_km=float(row['average energy per km kwh']),
-            garage_cost=0.0,  # Not available in new dataset
-            charging_cost=float(row['charging cost']),
-            maintenance_cost=float(row['total maintanace cost']),
-            total_operating_cost=float(row['charging cost']) + float(row['total maintanace cost']),
-            gross_revenue=float(row['gross revenue']),
-            driver_charge=float(row['driver earnings']),
-            overspeed_count=0,  # Not available in new dataset
-            max_speed=int(row['max speed'])
+            driver_id=str(row.get("driver id", "")),
+            car_id=str(row.get("car id", "")),
+            driver_name=str(row.get("drive name", "")),
+            city=str(row.get("city", "")),
+            vehicle_type=str(row.get("vechicle type", "")),
+            status="assigned",
+            vehicle_age=_to_int(row.get("vechicle age", 0), 0),
+            trips_per_month=int(total_km / 100) if total_km > 0 else 20,
+            battery_health=_to_float(row.get("batery health", 0.0), 0.0),
+            charge_per_km=_to_float(row.get("average energy per km kwh", 0.0), 0.0),
+            garage_cost=0.0,
+            charging_cost=charging_cost,
+            maintenance_cost=maintenance_cost,
+            total_operating_cost=charging_cost + maintenance_cost,
+            gross_revenue=_to_float(row.get("gross revenue", 0.0), 0.0),
+            driver_charge=_to_float(row.get("driver earnings", 0.0), 0.0),
+            overspeed_count=0,
+            max_speed=_to_int(row.get("max speed", 0), 0)
         )
         db.session.add(car)
+
     db.session.commit()
-    print("Car data loaded successfully from Excel!")
+    print("Car data loaded successfully from CSV!")
 
 def ensure_car_columns():
     with db.engine.begin() as conn:
@@ -143,7 +168,7 @@ def init_db():
         print("Default admin created successfully!")
     
     # Load car data from CSV
-    load_car_data()
+    load_car_data(force_reload=False)
 
 # Create tables and add default admin
 with app.app_context():
@@ -1136,6 +1161,142 @@ def api_admin_delete_car(car_id):
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@app.route("/api/admin/drivers", methods=["GET"])
+def api_admin_get_drivers():
+    """Get all drivers with optional search (by name, driver ID, or car ID)"""
+    try:
+        search = request.args.get("search", "").strip()
+        page = request.args.get("page", 1, type=int)
+        per_page = request.args.get("per_page", 20, type=int)
+        
+        query = db.session.query(
+            Car.driver_id,
+            Car.driver_name,
+            Car.city,
+            func.count(Car.id).label("car_count"),
+            func.sum(Car.gross_revenue).label("total_revenue"),
+            func.avg(Car.battery_health).label("avg_battery_health")
+        ).filter(Car.status == "assigned")
+        
+        if search:
+            query = query.filter(
+                (Car.driver_name.ilike(f"%{search}%")) | 
+                (Car.driver_id.ilike(f"%{search}%")) |
+                (Car.car_id.ilike(f"%{search}%"))
+            )
+        
+        query = query.group_by(Car.driver_id, Car.driver_name, Car.city)
+        
+        total = query.count()
+        drivers = query.limit(per_page).offset((page - 1) * per_page).all()
+        
+        result = []
+        for driver in drivers:
+            result.append({
+                "driver_id": driver.driver_id,
+                "driver_name": driver.driver_name,
+                "city": driver.city,
+                "car_count": driver.car_count,
+                "total_revenue": float(driver.total_revenue or 0),
+                "avg_battery_health": float(driver.avg_battery_health or 0)
+            })
+        
+        return jsonify({
+            "drivers": result,
+            "total": total,
+            "pages": (total + per_page - 1) // per_page,
+            "current_page": page,
+            "per_page": per_page
+        }), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/admin/drivers/<driver_id>", methods=["GET"])
+def api_admin_get_driver(driver_id):
+    """Get a specific driver's full details with all car information"""
+    try:
+        cars = Car.query.filter_by(driver_id=driver_id, status="assigned").all()
+        if not cars:
+            return jsonify({"error": "Driver not found"}), 404
+        
+        first_car = cars[0]
+        driver_info = {
+            "driver_id": first_car.driver_id,
+            "driver_name": first_car.driver_name,
+            "city": first_car.city,
+            "car_count": len(cars),
+            "total_revenue": sum(car.gross_revenue for car in cars),
+            "total_maintenance_cost": sum(car.maintenance_cost for car in cars),
+            "avg_battery_health": sum(car.battery_health for car in cars) / len(cars),
+            "cars": [{
+                "id": car.id,
+                "car_id": car.car_id,
+                "vehicle_type": car.vehicle_type,
+                "vehicle_age": car.vehicle_age,
+                "battery_health": car.battery_health,
+                "charge_per_km": car.charge_per_km,
+                "trips_per_month": car.trips_per_month,
+                "gross_revenue": car.gross_revenue,
+                "driver_charge": car.driver_charge,
+                "charging_cost": car.charging_cost,
+                "maintenance_cost": car.maintenance_cost,
+                "total_operating_cost": car.total_operating_cost,
+                "garage_cost": car.garage_cost,
+                "overspeed_count": car.overspeed_count,
+                "max_speed": car.max_speed,
+                "status": car.status
+            } for car in cars]
+        }
+        
+        return jsonify(driver_info), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/admin/drivers/<driver_id>", methods=["PUT"])
+def api_admin_update_driver(driver_id):
+    """Update driver information"""
+    try:
+        data = request.get_json()
+        cars = Car.query.filter_by(driver_id=driver_id).all()
+        
+        if not cars:
+            return jsonify({"error": "Driver not found"}), 404
+        
+        new_driver_name = data.get("driver_name", "").strip()
+        new_city = data.get("city", "").strip()
+        
+        if not new_driver_name or not new_city:
+            return jsonify({"error": "Driver name and city are required"}), 400
+        
+        for car in cars:
+            car.driver_name = new_driver_name
+            car.city = new_city
+        
+        db.session.commit()
+        
+        return jsonify({"success": True, "message": "Driver updated successfully"}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/admin/drivers/<driver_id>", methods=["DELETE"])
+def api_admin_delete_driver(driver_id):
+    """Delete a driver and release their cars"""
+    try:
+        cars = Car.query.filter_by(driver_id=driver_id).all()
+        if not cars:
+            return jsonify({"error": "Driver not found"}), 404
+        
+        for car in cars:
+            car.status = "available"
+            car.driver_id = "UNASSIGNED"
+            car.driver_name = "Unassigned"
+        
+        db.session.commit()
+        
+        return jsonify({"success": True, "message": "Driver removed and cars released"}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 @app.route("/api/admin/drivers/<driver_id>/release", methods=["POST"])
 def api_admin_release_driver(driver_id):
     """Release all cars for a driver"""
@@ -1319,6 +1480,172 @@ def api_ml_monthly_trend():
             return jsonify({"error": f"Metric '{metric}' not found"}), 404
         
         return jsonify(trend), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# ==========================================
+# BATTERY HEALTH & PREDICTION ENDPOINTS
+# ==========================================
+
+@app.route("/api/battery/dashboard", methods=["GET"])
+def api_battery_dashboard():
+    """
+    Get complete battery health dashboard data
+    Returns: alerts, analytics, usage statistics, model accuracy
+    """
+    try:
+        dashboard_data = battery_system.get_dashboard_data()
+        return jsonify(dashboard_data), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/battery/predict", methods=["POST"])
+def api_battery_predict():
+    """
+    Predict battery failure risk
+    
+    JSON payload:
+    {
+        "vehicle_age": number,
+        "total_km": number,
+        "charge_percentage": number,
+        "battery_capacity": number
+    }
+    """
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "Request body required"}), 400
+        
+        required_fields = ["vehicle_age", "total_km", "charge_percentage", "battery_capacity"]
+        for field in required_fields:
+            if field not in data:
+                return jsonify({"error": f"'{field}' is required"}), 400
+        
+        result = battery_system.predict_battery_api(
+            age=data["vehicle_age"],
+            km=data["total_km"],
+            charge=data["charge_percentage"],
+            capacity=data["battery_capacity"]
+        )
+        
+        return jsonify(result), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/battery/predict-revenue", methods=["POST"])
+def api_revenue_predict():
+    """
+    Predict revenue based on vehicle parameters
+    
+    JSON payload:
+    {
+        "total_km": number,
+        "charging_cost": number,
+        "maintenance_cost": number
+    }
+    """
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "Request body required"}), 400
+        
+        required_fields = ["total_km", "charging_cost", "maintenance_cost"]
+        for field in required_fields:
+            if field not in data:
+                return jsonify({"error": f"'{field}' is required"}), 400
+        
+        result = battery_system.predict_revenue_api(
+            km=data["total_km"],
+            charging_cost=data["charging_cost"],
+            maintenance_cost=data["maintenance_cost"]
+        )
+        
+        return jsonify(result), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/battery/alerts", methods=["GET"])
+def api_battery_alerts():
+    """Get all battery health alerts for vehicles needing attention"""
+    try:
+        df = battery_system.load_and_preprocess_data()
+        alerts = battery_system.generate_alerts(df)
+        return jsonify({"alerts": alerts, "count": len(alerts)}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/battery/analytics", methods=["GET"])
+def api_battery_analytics():
+    """
+    Get battery health analytics
+    Returns: yearly revenue, monthly revenue, monthly costs, usage statistics
+    """
+    try:
+        df = battery_system.load_and_preprocess_data()
+        
+        analytics = {
+            "yearly_revenue": battery_system.get_yearly_revenue(df),
+            "monthly_revenue": battery_system.get_monthly_revenue(df),
+            "monthly_costs": battery_system.get_monthly_costs(df),
+            "usage_statistics": battery_system.get_usage_statistics(df),
+            "total_vehicles": int(len(df))
+        }
+        
+        return jsonify(analytics), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/battery/model-comparison", methods=["GET"])
+def api_model_comparison():
+    """
+    Get model accuracy comparison statistics
+    Returns: Battery model vs Revenue model performance metrics
+    """
+    try:
+        comparison_stats = battery_system.get_model_comparison_stats()
+        return jsonify(comparison_stats), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/vehicle/status-by-type", methods=["GET"])
+def api_vehicle_status_by_type():
+    """
+    Get active/inactive vehicle count per vehicle type
+    Returns: List of vehicle types with active/inactive counts
+    """
+    try:
+        status_data = battery_system.get_vehicle_status_by_type()
+        return jsonify({"vehicle_status": status_data}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/vehicle/overspeed-count", methods=["GET"])
+def api_overspeed_count():
+    """
+    Get overspeed counts from dataset for today/day/month/year
+    Query params: scope=today|day|month|year, date=YYYY-MM-DD, month=MM, year=YYYY
+    """
+    try:
+        scope = request.args.get("scope", "today")
+        date_str = request.args.get("date")
+        month = request.args.get("month")
+        year = request.args.get("year")
+        data = battery_system.get_overspeed_count(
+            scope=scope,
+            date_str=date_str,
+            month=month,
+            year=year
+        )
+        return jsonify(data), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
