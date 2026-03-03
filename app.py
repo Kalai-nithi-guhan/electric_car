@@ -10,6 +10,7 @@ import os
 import pandas as pd
 from ml_models import get_analytics, get_predictor, get_comparison
 import batteryHealth_comparisonMode as battery_system
+import driverModel as driver_model
 
 app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = "sqlite:///electricCar.db"
@@ -17,7 +18,18 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.secret_key = "electricCarSecretKey"
 
 # Enable CORS for Next.js frontend
-CORS(app, resources={r"/api/*": {"origins": "http://localhost:3000"}}, supports_credentials=True)
+CORS(
+    app,
+    resources={
+        r"/api/*": {
+            "origins": [
+                "http://localhost:3000",
+                "http://127.0.0.1:3000",
+            ]
+        }
+    },
+    supports_credentials=True,
+)
 
 db = SQLAlchemy(app)
 bcrypt = Bcrypt(app)
@@ -651,8 +663,22 @@ def api_login_driver():
         
         user = User.query.filter_by(username=username, role="driver").first()
         if user and user.check_password(password):
+            # Try to fetch driver_name from Car table
+            car = Car.query.filter_by(driver_name=username).first()
+            if not car:
+                # Try to find by username as driver_name
+                car = Car.query.filter_by(driver_name=username).first()
+            
+            # If still not found, try to assign a CSV driver name or use a default
+            if car:
+                driver_name = car.driver_name
+            else:
+                # Fall back to username or try to find an unassigned CSV driver
+                driver_name = username
+            
             session.clear()
             session["username"] = user.username
+            session["driver_name"] = driver_name  # Store the driver name for CSV lookup
             session["role"] = "driver"
             session["user_id"] = user.id
             
@@ -702,6 +728,15 @@ def api_login_admin():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@app.route("/api/available-drivers", methods=["GET"])
+def api_available_drivers():
+    """Get list of available driver names from CSV dataset"""
+    try:
+        drivers = driver_model.get_available_drivers()
+        return jsonify({"drivers": drivers}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 @app.route("/api/auth/register/driver", methods=["POST"])
 def api_register_driver():
     """Driver registration API endpoint"""
@@ -723,6 +758,14 @@ def api_register_driver():
         
         if User.query.filter_by(email=email).first():
             return jsonify({"error": "Email already exists"}), 400
+        
+        # Validate driver_name exists in CSV, if not assign first available
+        available_csv_drivers = driver_model.get_available_drivers()
+        if driver_name not in available_csv_drivers:
+            if available_csv_drivers:
+                driver_name = available_csv_drivers[0]  # Use first available CSV driver
+            else:
+                return jsonify({"error": "No drivers available in dataset"}), 400
         
         new_user = User(username=username, email=email, phone=phone, role="driver")
         new_user.set_password(password)
@@ -910,6 +953,57 @@ def api_get_driver_status():
         }
         
         return jsonify(driver_status), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/driver/profile", methods=["GET"])
+def api_get_driver_profile():
+    """Get driver profile from dataset based on logged-in driver"""
+    if "username" not in session or session.get("role") != "driver":
+        return jsonify({"error": "Unauthorized"}), 401
+
+    # Try to use driver_name from session, fall back to username
+    driver_name = session.get("driver_name") or session.get("username")
+    data = driver_model.get_driver_profile(driver_name)
+    
+    # If exact match not found, return a random driver profile
+    if not data:
+        data = driver_model.get_random_driver_profile()
+    
+    if not data:
+        return jsonify({"error": "Driver profile not found"}), 404
+
+    return jsonify(data), 200
+
+
+@app.route("/api/driver/predict-km", methods=["POST"])
+def api_driver_predict_km():
+    """Predict driver battery health and remaining distance from dataset"""
+    if "username" not in session or session.get("role") != "driver":
+        return jsonify({"error": "Unauthorized"}), 401
+
+    try:
+        payload = request.get_json() or {}
+        current_charge = float(payload.get("current_charge_percentage", 0))
+        # Try to use driver_name from session, fall back to username
+        driver_name = session.get("driver_name") or session.get("username")
+
+        # Try exact match first
+        result = driver_model.predict_driver_km(driver_name, current_charge)
+        
+        # If exact match fails, use a random driver
+        if not result:
+            # Get random driver profile
+            random_profile = driver_model.get_random_driver_profile()
+            if random_profile:
+                random_driver_name = random_profile.get("driver_name")
+                result = driver_model.predict_driver_km(random_driver_name, current_charge)
+        
+        if not result:
+            return jsonify({"error": "Prediction failed"}), 400
+
+        return jsonify(result), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -1646,6 +1740,54 @@ def api_overspeed_count():
             year=year
         )
         return jsonify(data), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/analytics/top-drivers", methods=["GET"])
+def api_top_drivers():
+    """
+    Get top revenue-generating drivers
+    Query params: limit=10 (default)
+    """
+    try:
+        limit = int(request.args.get("limit", 10))
+        scope = request.args.get("scope", "all")
+        date_str = request.args.get("date")
+        month = request.args.get("month")
+        year = request.args.get("year")
+        data = battery_system.get_top_revenue_by_driver(
+            limit=limit,
+            scope=scope,
+            date_str=date_str,
+            month=month,
+            year=year
+        )
+        return jsonify({"top_drivers": data}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/analytics/top-cars", methods=["GET"])
+def api_top_cars():
+    """
+    Get top revenue-generating cars
+    Query params: limit=10 (default)
+    """
+    try:
+        limit = int(request.args.get("limit", 10))
+        scope = request.args.get("scope", "all")
+        date_str = request.args.get("date")
+        month = request.args.get("month")
+        year = request.args.get("year")
+        data = battery_system.get_top_revenue_by_car(
+            limit=limit,
+            scope=scope,
+            date_str=date_str,
+            month=month,
+            year=year
+        )
+        return jsonify({"top_cars": data}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 

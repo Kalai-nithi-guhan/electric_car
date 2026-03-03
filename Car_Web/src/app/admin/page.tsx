@@ -56,6 +56,28 @@ interface OverspeedCount {
   count: number;
   avg_speed: number;
   total_records: number;
+  vehicles: Array<{
+    car_id: string;
+    driver_id: string;
+    driver_name: string;
+    max_speed: number;
+    vehicle_type: string;
+  }>;
+}
+
+interface TopDriver {
+  driver_id: string;
+  driver_name: string;
+  total_revenue: number;
+  car_count: number;
+}
+
+interface TopCar {
+  car_id: string;
+  driver_id: string;
+  driver_name: string;
+  vehicle_type: string;
+  total_revenue: number;
 }
 
 interface Driver {
@@ -110,6 +132,12 @@ function AdminManagementContent() {
   const [overspeedDate, setOverspeedDate] = useState<string>(new Date().toISOString().slice(0, 10));
   const [overspeedMonth, setOverspeedMonth] = useState<string>(new Date().toISOString().slice(0, 7));
   const [overspeedYear, setOverspeedYear] = useState<number>(new Date().getFullYear());
+  const [topDrivers, setTopDrivers] = useState<TopDriver[]>([]);
+  const [topCars, setTopCars] = useState<TopCar[]>([]);
+  const [topRevenueScope, setTopRevenueScope] = useState<"all" | "day" | "month" | "year">("all");
+  const [topRevenueDate, setTopRevenueDate] = useState<string>(new Date().toISOString().slice(0, 10));
+  const [topRevenueMonth, setTopRevenueMonth] = useState<string>(new Date().toISOString().slice(0, 7));
+  const [topRevenueYear, setTopRevenueYear] = useState<number>(new Date().getFullYear());
   
   // Driver management state
   const [drivers, setDrivers] = useState<Driver[]>([]);
@@ -128,6 +156,8 @@ function AdminManagementContent() {
     loadTrendData();
     loadDrivers();
     loadOverspeedToday();
+    loadTopDrivers();
+    loadTopCars();
   }, []);
 
   useEffect(() => {
@@ -141,6 +171,11 @@ function AdminManagementContent() {
   useEffect(() => {
     loadOverspeedFiltered();
   }, [overspeedScope, overspeedDate, overspeedMonth, overspeedYear]);
+
+  useEffect(() => {
+    loadTopDrivers();
+    loadTopCars();
+  }, [topRevenueScope, topRevenueDate, topRevenueMonth, topRevenueYear]);
 
   const loadDrivers = async () => {
     try {
@@ -201,6 +236,70 @@ function AdminManagementContent() {
       }
     } catch (err) {
       console.error("Error loading overspeed filtered:", err);
+    }
+  };
+
+  const loadTopDrivers = async () => {
+    try {
+      const url = new URL(`${API_BASE_URL}/api/analytics/top-drivers`);
+      url.searchParams.set("limit", "10");
+      url.searchParams.set("scope", topRevenueScope);
+      if (topRevenueScope === "day") {
+        url.searchParams.set("date", topRevenueDate);
+      }
+      if (topRevenueScope === "month") {
+        const [year, month] = topRevenueMonth.split("-");
+        if (year && month) {
+          url.searchParams.set("year", year);
+          url.searchParams.set("month", month);
+        }
+      }
+      if (topRevenueScope === "year") {
+        url.searchParams.set("year", String(topRevenueYear));
+      }
+
+      const response = await fetch(url.toString(), { credentials: "include" });
+      if (response.ok) {
+        const data = await response.json();
+        console.log("Top Drivers Response:", data);
+        setTopDrivers(data.top_drivers || []);
+      } else {
+        console.error("Top Drivers API failed:", response.status);
+      }
+    } catch (err) {
+      console.error("Error loading top drivers:", err);
+    }
+  };
+
+  const loadTopCars = async () => {
+    try {
+      const url = new URL(`${API_BASE_URL}/api/analytics/top-cars`);
+      url.searchParams.set("limit", "10");
+      url.searchParams.set("scope", topRevenueScope);
+      if (topRevenueScope === "day") {
+        url.searchParams.set("date", topRevenueDate);
+      }
+      if (topRevenueScope === "month") {
+        const [year, month] = topRevenueMonth.split("-");
+        if (year && month) {
+          url.searchParams.set("year", year);
+          url.searchParams.set("month", month);
+        }
+      }
+      if (topRevenueScope === "year") {
+        url.searchParams.set("year", String(topRevenueYear));
+      }
+
+      const response = await fetch(url.toString(), { credentials: "include" });
+      if (response.ok) {
+        const data = await response.json();
+        console.log("Top Cars Response:", data);
+        setTopCars(data.top_cars || []);
+      } else {
+        console.error("Top Cars API failed:", response.status);
+      }
+    } catch (err) {
+      console.error("Error loading top cars:", err);
     }
   };
 
@@ -435,16 +534,19 @@ function AdminManagementContent() {
               <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
                 <div className="flex items-center justify-between mb-3">
                   <h3 className="text-sm font-semibold text-slate-900">Overspeeding Count</h3>
-                  <span className="text-xs text-slate-500">Dataset-based</span>
+                  <span className="text-xs text-slate-500">Dataset-based (Speed &gt; Average)</span>
                 </div>
                 <div className="grid gap-3 md:grid-cols-3">
-                  <div className="rounded-lg border border-slate-200 p-3">
-                    <p className="text-xs text-slate-500">Today</p>
+                  <div className="rounded-lg border border-red-200 bg-red-50 p-3">
+                    <p className="text-xs text-slate-500">Today (Latest Date)</p>
                     <p className="text-xl font-bold text-red-600">
                       {overspeedToday?.count ?? 0}
                     </p>
                     <p className="text-xs text-slate-500">
                       Avg speed: {overspeedToday ? overspeedToday.avg_speed.toFixed(1) : "0.0"} km/h
+                    </p>
+                    <p className="text-xs text-slate-500">
+                      Records: {overspeedToday?.total_records ?? 0}
                     </p>
                   </div>
                   <div className="rounded-lg border border-slate-200 p-3">
@@ -454,6 +556,9 @@ function AdminManagementContent() {
                     </p>
                     <p className="text-xs text-slate-500">
                       Avg speed: {overspeedFiltered ? overspeedFiltered.avg_speed.toFixed(1) : "0.0"} km/h
+                    </p>
+                    <p className="text-xs text-slate-500">
+                      Records: {overspeedFiltered?.total_records ?? 0}
                     </p>
                   </div>
                   <div className="rounded-lg border border-slate-200 p-3 space-y-2">
@@ -493,6 +598,194 @@ function AdminManagementContent() {
                         className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs w-full"
                       />
                     )}
+                  </div>
+                </div>
+                
+                {/* Overspeeding Vehicles Tables */}
+                <div className="mt-4 border-t border-slate-200 pt-4 space-y-4">
+                  {/* Today's Overspeeding Vehicles */}
+                  {(overspeedToday && overspeedToday.vehicles && overspeedToday.vehicles.length > 0) && (
+                    <div>
+                      <h4 className="text-sm font-semibold text-slate-700 mb-3">🚨 Today's Overspeeding Vehicles ({overspeedToday.vehicles.length})</h4>
+                      <div className="max-h-96 overflow-y-auto border border-slate-200 rounded-lg">
+                        <table className="w-full text-xs">
+                          <thead className="bg-red-100 sticky top-0">
+                            <tr>
+                              <th className="px-3 py-2 text-left text-slate-700 font-semibold">Car ID</th>
+                              <th className="px-3 py-2 text-left text-slate-700 font-semibold">Driver ID</th>
+                              <th className="px-3 py-2 text-left text-slate-700 font-semibold">Driver Name</th>
+                              <th className="px-3 py-2 text-left text-slate-700 font-semibold">Vehicle Type</th>
+                              <th className="px-3 py-2 text-left text-slate-700 font-semibold">Speed (km/h)</th>
+                            </tr>
+                          </thead>
+                          <tbody className="bg-white">
+                            {overspeedToday.vehicles.map((vehicle, idx) => (
+                              <tr key={idx} className="border-b border-slate-100 hover:bg-red-50 transition-colors">
+                                <td className="px-3 py-2 text-slate-900 font-medium">{vehicle.car_id}</td>
+                                <td className="px-3 py-2 text-slate-900">{vehicle.driver_id}</td>
+                                <td className="px-3 py-2 text-slate-900">{vehicle.driver_name}</td>
+                                <td className="px-3 py-2 text-slate-600">{vehicle.vehicle_type}</td>
+                                <td className="px-3 py-2 text-red-600 font-bold">{vehicle.max_speed}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Filtered Overspeeding Vehicles */}
+                  {(overspeedFiltered && overspeedFiltered.vehicles && overspeedFiltered.vehicles.length > 0) && (
+                    <div>
+                      <h4 className="text-sm font-semibold text-slate-700 mb-3">🚨 Filtered Overspeeding Vehicles ({overspeedFiltered.vehicles.length})</h4>
+                      <div className="max-h-96 overflow-y-auto border border-slate-200 rounded-lg">
+                        <table className="w-full text-xs">
+                          <thead className="bg-slate-100 sticky top-0">
+                            <tr>
+                              <th className="px-3 py-2 text-left text-slate-700 font-semibold">Car ID</th>
+                              <th className="px-3 py-2 text-left text-slate-700 font-semibold">Driver ID</th>
+                              <th className="px-3 py-2 text-left text-slate-700 font-semibold">Driver Name</th>
+                              <th className="px-3 py-2 text-left text-slate-700 font-semibold">Vehicle Type</th>
+                              <th className="px-3 py-2 text-left text-slate-700 font-semibold">Speed (km/h)</th>
+                            </tr>
+                          </thead>
+                          <tbody className="bg-white">
+                            {overspeedFiltered.vehicles.map((vehicle, idx) => (
+                              <tr key={idx} className="border-b border-slate-100 hover:bg-red-50 transition-colors">
+                                <td className="px-3 py-2 text-slate-900 font-medium">{vehicle.car_id}</td>
+                                <td className="px-3 py-2 text-slate-900">{vehicle.driver_id}</td>
+                                <td className="px-3 py-2 text-slate-900">{vehicle.driver_name}</td>
+                                <td className="px-3 py-2 text-slate-600">{vehicle.vehicle_type}</td>
+                                <td className="px-3 py-2 text-red-600 font-bold">{vehicle.max_speed}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Top Revenue Section */}
+              <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                <div className="flex flex-wrap items-center gap-3">
+                  <h3 className="text-sm font-semibold text-slate-900">Top Revenue Filters</h3>
+                  <select
+                    value={topRevenueScope}
+                    onChange={(e) => setTopRevenueScope(e.target.value as "all" | "day" | "month" | "year")}
+                    className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs"
+                  >
+                    <option value="all">All Time</option>
+                    <option value="day">Day-wise</option>
+                    <option value="month">Month-wise</option>
+                    <option value="year">Year-wise</option>
+                  </select>
+                  {topRevenueScope === "day" && (
+                    <input
+                      type="date"
+                      value={topRevenueDate}
+                      onChange={(e) => setTopRevenueDate(e.target.value)}
+                      className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs"
+                    />
+                  )}
+                  {topRevenueScope === "month" && (
+                    <input
+                      type="month"
+                      value={topRevenueMonth}
+                      onChange={(e) => setTopRevenueMonth(e.target.value)}
+                      className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs"
+                    />
+                  )}
+                  {topRevenueScope === "year" && (
+                    <input
+                      type="number"
+                      min={2000}
+                      max={2100}
+                      value={topRevenueYear}
+                      onChange={(e) => setTopRevenueYear(Number(e.target.value))}
+                      className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs w-24"
+                    />
+                  )}
+                </div>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                {/* Top 10 Drivers by Revenue */}
+                <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+                  <h3 className="text-lg font-semibold text-slate-900 mb-4">🏆 Top 10 Drivers by Revenue</h3>
+                  <div className="max-h-[500px] overflow-y-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-emerald-50 sticky top-0">
+                        <tr>
+                          <th className="px-3 py-2 text-left text-emerald-700 font-semibold">#</th>
+                          <th className="px-3 py-2 text-left text-emerald-700 font-semibold">Driver ID</th>
+                          <th className="px-3 py-2 text-left text-emerald-700 font-semibold">Driver Name</th>
+                          <th className="px-3 py-2 text-left text-emerald-700 font-semibold">Cars</th>
+                          <th className="px-3 py-2 text-right text-emerald-700 font-semibold">Total Revenue</th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white">
+                        {topDrivers.length > 0 ? (
+                          topDrivers.map((driver, idx) => (
+                            <tr key={idx} className="border-b border-slate-100 hover:bg-emerald-50 transition-colors">
+                              <td className="px-3 py-2 text-slate-500 font-bold">{idx + 1}</td>
+                              <td className="px-3 py-2 text-slate-900 font-medium">{driver.driver_id}</td>
+                              <td className="px-3 py-2 text-slate-900">{driver.driver_name}</td>
+                              <td className="px-3 py-2 text-slate-600">{driver.car_count}</td>
+                              <td className="px-3 py-2 text-right text-emerald-600 font-bold">
+                                ₹{(driver.total_revenue / 1000).toFixed(2)}K
+                              </td>
+                            </tr>
+                          ))
+                        ) : (
+                          <tr>
+                            <td colSpan={5} className="px-3 py-4 text-center text-slate-500">
+                              No data available
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* Top 10 Cars by Revenue */}
+                <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+                  <h3 className="text-lg font-semibold text-slate-900 mb-4">🚗 Top 10 Cars by Revenue</h3>
+                  <div className="max-h-[500px] overflow-y-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-blue-50 sticky top-0">
+                        <tr>
+                          <th className="px-3 py-2 text-left text-blue-700 font-semibold">#</th>
+                          <th className="px-3 py-2 text-left text-blue-700 font-semibold">Car ID</th>
+                          <th className="px-3 py-2 text-left text-blue-700 font-semibold">Driver</th>
+                          <th className="px-3 py-2 text-left text-blue-700 font-semibold">Type</th>
+                          <th className="px-3 py-2 text-right text-blue-700 font-semibold">Total Revenue</th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white">
+                        {topCars.length > 0 ? (
+                          topCars.map((car, idx) => (
+                            <tr key={idx} className="border-b border-slate-100 hover:bg-blue-50 transition-colors">
+                              <td className="px-3 py-2 text-slate-500 font-bold">{idx + 1}</td>
+                              <td className="px-3 py-2 text-slate-900 font-medium">{car.car_id}</td>
+                              <td className="px-3 py-2 text-slate-900">{car.driver_name}</td>
+                              <td className="px-3 py-2 text-slate-600">{car.vehicle_type}</td>
+                              <td className="px-3 py-2 text-right text-blue-600 font-bold">
+                                ₹{(car.total_revenue / 1000).toFixed(2)}K
+                              </td>
+                            </tr>
+                          ))
+                        ) : (
+                          <tr>
+                            <td colSpan={5} className="px-3 py-4 text-center text-slate-500">
+                              No data available
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
                   </div>
                 </div>
               </div>

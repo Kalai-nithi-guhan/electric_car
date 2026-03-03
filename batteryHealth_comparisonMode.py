@@ -281,23 +281,139 @@ def get_overspeed_count(scope="today", date_str=None, month=None, year=None):
                 return {"count": 0, "avg_speed": 0, "total_records": 0}
             filtered = df[df["date"].dt.year == int(year)]
         else:
+            # For "today" scope: if today's date not in dataset, use most recent date
             today = datetime.today().date()
             filtered = df[df["date"].dt.date == today]
+            if filtered.empty:
+                # Use most recent date in dataset
+                most_recent = df["date"].max().date()
+                filtered = df[df["date"].dt.date == most_recent]
 
         if filtered.empty:
-            return {"count": 0, "avg_speed": 0, "total_records": 0}
+            return {"count": 0, "avg_speed": 0, "total_records": 0, "vehicles": []}
 
         avg_speed = float(filtered["max speed"].mean())
-        overspeed_count = int((filtered["max speed"] > avg_speed).sum())
+        overspeed_mask = filtered["max speed"] > avg_speed
+        overspeed_df = filtered[overspeed_mask]
+        overspeed_count = int(overspeed_mask.sum())
+
+        # Get list of overspeeding vehicles with car_id and driver_id
+        vehicles = []
+        if not overspeed_df.empty:
+            for _, row in overspeed_df.iterrows():
+                vehicles.append({
+                    "car_id": str(row.get("car id", "N/A")),
+                    "driver_id": str(row.get("driver id", "N/A")),
+                    "driver_name": str(row.get("drive name", "N/A")),
+                    "max_speed": float(row.get("max speed", 0)),
+                    "vehicle_type": str(row.get("vechicle type", "N/A"))
+                })
 
         return {
             "count": overspeed_count,
             "avg_speed": avg_speed,
-            "total_records": int(len(filtered))
+            "total_records": int(len(filtered)),
+            "vehicles": vehicles
         }
     except Exception as e:
         print(f"Error getting overspeed count: {e}")
-        return {"count": 0, "avg_speed": 0, "total_records": 0}
+        return {"count": 0, "avg_speed": 0, "total_records": 0, "vehicles": []}
+
+
+def _apply_date_filter(df, scope="all", date_str=None, month=None, year=None):
+    """Filter dataframe by day/month/year scopes using the date column"""
+    if scope == "day":
+        if not date_str:
+            return df.iloc[0:0]
+        target_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+        return df[df["date"].dt.date == target_date]
+    if scope == "month":
+        if not month or not year:
+            return df.iloc[0:0]
+        return df[(df["date"].dt.month == int(month)) & (df["date"].dt.year == int(year))]
+    if scope == "year":
+        if not year:
+            return df.iloc[0:0]
+        return df[df["date"].dt.year == int(year)]
+
+    return df
+
+
+def get_top_revenue_by_driver(limit=10, scope="all", date_str=None, month=None, year=None):
+    """Get top revenue-generating drivers from dataset"""
+    try:
+        df = load_and_preprocess_data()
+        if "driver id" not in df.columns or "gross revenue" not in df.columns:
+            return []
+
+        df = _apply_date_filter(df, scope=scope, date_str=date_str, month=month, year=year)
+        if df.empty:
+            return []
+
+        # Group by driver and aggregate revenue
+        driver_revenue = df.groupby(["driver id", "drive name"]).agg({
+            "gross revenue": "sum",
+            "car id": "nunique"
+        }).reset_index()
+        
+        driver_revenue.columns = ["driver_id", "driver_name", "total_revenue", "car_count"]
+        
+        # Sort by revenue descending and get top N
+        top_drivers = driver_revenue.sort_values("total_revenue", ascending=False).head(limit)
+        
+        result = []
+        for _, row in top_drivers.iterrows():
+            result.append({
+                "driver_id": str(row["driver_id"]),
+                "driver_name": str(row["driver_name"]),
+                "total_revenue": float(row["total_revenue"]),
+                "car_count": int(row["car_count"])
+            })
+        
+        return result
+    except Exception as e:
+        print(f"Error getting top revenue by driver: {e}")
+        return []
+
+
+def get_top_revenue_by_car(limit=10, scope="all", date_str=None, month=None, year=None):
+    """Get top revenue-generating cars from dataset"""
+    try:
+        df = load_and_preprocess_data()
+        if "car id" not in df.columns or "gross revenue" not in df.columns:
+            return []
+
+        df = _apply_date_filter(df, scope=scope, date_str=date_str, month=month, year=year)
+        if df.empty:
+            return []
+
+        # Group by car and aggregate revenue
+        car_revenue = df.groupby("car id").agg({
+            "gross revenue": "sum",
+            "driver id": "first",
+            "drive name": "first",
+            "vechicle type": "first"
+        }).reset_index()
+        
+        car_revenue.columns = ["car_id", "total_revenue", "driver_id", "driver_name", "vehicle_type"]
+        
+        # Sort by revenue descending and get top N
+        top_cars = car_revenue.sort_values("total_revenue", ascending=False).head(limit)
+        
+        result = []
+        for _, row in top_cars.iterrows():
+            result.append({
+                "car_id": str(row["car_id"]),
+                "driver_id": str(row["driver_id"]),
+                "driver_name": str(row["driver_name"]),
+                "vehicle_type": str(row["vehicle_type"]),
+                "total_revenue": float(row["total_revenue"])
+            })
+        
+        return result
+    except Exception as e:
+        print(f"Error getting top revenue by car: {e}")
+        return []
 
 
 def get_model_comparison_stats():
